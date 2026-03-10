@@ -1,7 +1,7 @@
 import { NavLink, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, FolderKanban, Bot, Cpu, Plus,
-  Zap, ChevronRight,
+  Zap, ChevronRight, ShieldCheck,
 } from 'lucide-react'
 
 const navItems = [
@@ -9,6 +9,7 @@ const navItems = [
   { to: '/projects', icon: FolderKanban, label: 'Projects' },
   { to: '/agents', icon: Bot, label: 'Agents' },
   { to: '/platforms', icon: Cpu, label: 'Platforms' },
+  { to: '/license', icon: ShieldCheck, label: 'License' },
 ]
 
 export default function Sidebar() {

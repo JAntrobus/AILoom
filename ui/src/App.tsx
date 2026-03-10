@@ -8,6 +8,7 @@ import Agents from './pages/Agents'
 import NewAgent from './pages/NewAgent'
 import Platforms from './pages/Platforms'
 import RunDetail from './pages/RunDetail'
+import LicensePage from './pages/LicensePage'
 
 export default function App() {
   return (
@@ -23,6 +24,7 @@ export default function App() {
           <Route path="agents" element={<Agents />} />
           <Route path="agents/new" element={<NewAgent />} />
           <Route path="platforms" element={<Platforms />} />
+          <Route path="license" element={<LicensePage />} />
         </Route>
       </Routes>
     </BrowserRouter>
