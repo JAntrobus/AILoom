@@ -3,14 +3,16 @@ import { useParams, useNavigate, Link } from 'react-router-dom'
 import {
   ArrowLeft, Play, SquareX, CheckCircle2,
   Layers, GitBranch, ListOrdered, ChevronRight,
-  Plus, Trash2,
+  Plus, Trash2, FileInput, Brain, Webhook, Globe,
+  FileCode2, MessageSquareText,
 } from 'lucide-react'
 import { api } from '../api/client'
-import type { Project, Run, Workflow, Agent } from '../types'
+import type { Project, Run, Workflow, Agent, MemoryFile } from '../types'
 import GlassCard from '../components/GlassCard'
 import StatusBadge from '../components/StatusBadge'
 import ProgressBar from '../components/ProgressBar'
 import WorkflowDiagram from '../components/WorkflowDiagram'
+import MemoryViewer from '../components/MemoryViewer'
 
 function timeAgo(iso?: string) {
   if (!iso) return '—'
@@ -31,7 +33,23 @@ function duration(start?: string, end?: string) {
   return `${Math.floor(sec / 60)}m ${sec % 60}s`
 }
 
-type Tab = 'overview' | 'workflow' | 'runs'
+const inputTypeIcons: Record<string, React.ReactNode> = {
+  text:    <MessageSquareText size={14} className="text-violet-400" />,
+  file:    <FileCode2 size={14} className="text-blue-400" />,
+  api:     <FileInput size={14} className="text-emerald-400" />,
+  url:     <Globe size={14} className="text-amber-400" />,
+  webhook: <Webhook size={14} className="text-red-400" />,
+}
+
+const inputTypeLabels: Record<string, string> = {
+  text:    'Text Prompt',
+  file:    'File Upload',
+  api:     'API / GitHub',
+  url:     'URL / Web',
+  webhook: 'Webhook',
+}
+
+type Tab = 'overview' | 'input' | 'workflow' | 'runs'
 
 export default function ProjectDetail() {
   const { id } = useParams<{ id: string }>()
@@ -43,6 +61,8 @@ export default function ProjectDetail() {
   const [agents, setAgents] = useState<Agent[]>([])
   const [loading, setLoading] = useState(true)
   const [launching, setLaunching] = useState(false)
+  const [runMemories, setRunMemories] = useState<Record<string, MemoryFile[]>>({})
+  const [expandedRunMem, setExpandedRunMem] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     if (!id) return
@@ -92,6 +112,16 @@ export default function ProjectDetail() {
     setRuns(prev => prev.filter(r => r.id !== runId))
   }
 
+  async function toggleRunMemory(runId: string) {
+    const next = new Set(expandedRunMem)
+    if (next.has(runId)) { next.delete(runId); setExpandedRunMem(next); return }
+    next.add(runId); setExpandedRunMem(next)
+    if (!runMemories[runId]) {
+      const mems = await api.getRunMemory(runId)
+      setRunMemories(prev => ({ ...prev, [runId]: mems }))
+    }
+  }
+
   if (loading) return (
     <div className="flex items-center justify-center h-64">
       <div className="w-8 h-8 border-2 border-violet-500/30 border-t-violet-500 rounded-full animate-spin" />
@@ -108,6 +138,7 @@ export default function ProjectDetail() {
 
   const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
     { id: 'overview', label: 'Overview', icon: <Layers size={14} /> },
+    { id: 'input', label: 'Input & Prompt', icon: <FileInput size={14} /> },
     { id: 'workflow', label: 'Workflow', icon: <GitBranch size={14} /> },
     { id: 'runs', label: `Runs (${runs.length})`, icon: <ListOrdered size={14} /> },
   ]
@@ -228,6 +259,7 @@ export default function ProjectDetail() {
               <dl className="space-y-2 text-xs">
                 {[
                   ['Status', <StatusBadge status={project.status} size="sm" />],
+                  ['Input type', <span className="flex items-center gap-1.5">{inputTypeIcons[project.input_type] ?? inputTypeIcons.text}{inputTypeLabels[project.input_type] ?? project.input_type}</span>],
                   ['Created', timeAgo(project.created_at)],
                   ['Last run', timeAgo(project.last_run_at)],
                   ['Workflow', workflow?.name ?? <span className="text-slate-600">None</span>],
@@ -240,6 +272,49 @@ export default function ProjectDetail() {
               </dl>
             </GlassCard>
           </div>
+        </div>
+      )}
+
+      {/* ── Input & Prompt ── */}
+      {tab === 'input' && (
+        <div className="space-y-4 max-w-3xl">
+          <GlassCard>
+            <div className="flex items-center gap-2 mb-4">
+              {inputTypeIcons[project.input_type] ?? inputTypeIcons.text}
+              <h3 className="text-sm font-semibold text-white">
+                Input Type: {inputTypeLabels[project.input_type] ?? project.input_type}
+              </h3>
+            </div>
+            <p className="text-xs text-slate-500 mb-5">
+              {project.input_type === 'text' && 'Data enters this project as a text prompt typed or pasted by the user.'}
+              {project.input_type === 'file' && 'Data enters this project as an uploaded file (document, code, CSV…).'}
+              {project.input_type === 'api' && 'Data enters this project via an API call (e.g. a GitHub PR, JIRA ticket, or webhook payload).'}
+              {project.input_type === 'url' && 'Data enters this project by fetching a URL or web page.'}
+              {project.input_type === 'webhook' && 'Data enters this project via an incoming webhook POST request.'}
+            </p>
+
+            <div className="mb-5">
+              <label className="label mb-2 flex items-center gap-2">
+                <MessageSquareText size={12} className="text-violet-400" />
+                Task Prompt
+              </label>
+              <div className="p-4 rounded-xl bg-black/20 border border-white/8 text-xs text-slate-300 leading-relaxed whitespace-pre-wrap font-mono">
+                {project.prompt || <span className="text-slate-600 italic">No prompt configured yet.</span>}
+              </div>
+            </div>
+
+            {project.input_config && (
+              <div>
+                <label className="label mb-2">Input Configuration (JSON)</label>
+                <div className="p-4 rounded-xl bg-black/20 border border-white/8 text-[11px] text-slate-400 font-mono leading-relaxed whitespace-pre-wrap overflow-x-auto">
+                  {(() => {
+                    try { return JSON.stringify(JSON.parse(project.input_config!), null, 2) }
+                    catch { return project.input_config }
+                  })()}
+                </div>
+              </div>
+            )}
+          </GlassCard>
         </div>
       )}
 
@@ -279,6 +354,7 @@ export default function ProjectDetail() {
             runs.map(run => {
               const done = run.steps.filter(s => s.status === 'completed').length
               const pct = run.steps.length > 0 ? (done / run.steps.length) * 100 : 0
+              const memOpen = expandedRunMem.has(run.id)
               return (
                 <GlassCard key={run.id} className="group" padding={false}>
                   <div className="p-4">
@@ -288,16 +364,29 @@ export default function ProjectDetail() {
                         <span className="text-xs text-slate-400">{timeAgo(run.created_at)}</span>
                         <span className="text-xs text-slate-600">{duration(run.started_at, run.completed_at)}</span>
                       </div>
-                      <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <Link
-                          to={`/projects/${id}/runs/${run.id}`}
-                          className="text-xs text-violet-400 hover:text-violet-300 flex items-center gap-1"
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => toggleRunMemory(run.id)}
+                          className={`flex items-center gap-1 text-xs px-2 py-1 rounded-lg border transition-all ${
+                            memOpen
+                              ? 'border-violet-500/30 bg-violet-600/15 text-violet-400'
+                              : 'border-white/8 text-slate-600 hover:text-slate-400 hover:border-white/15'
+                          }`}
                         >
-                          Details <ChevronRight size={10} />
-                        </Link>
-                        <button onClick={() => handleDeleteRun(run.id)} className="p-1 rounded text-slate-600 hover:text-red-400 hover:bg-red-500/10 transition-colors">
-                          <Trash2 size={11} />
+                          <Brain size={11} />
+                          Memory
                         </button>
+                        <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
+                          <Link
+                            to={`/projects/${id}/runs/${run.id}`}
+                            className="text-xs text-violet-400 hover:text-violet-300 flex items-center gap-1"
+                          >
+                            Details <ChevronRight size={10} />
+                          </Link>
+                          <button onClick={() => handleDeleteRun(run.id)} className="p-1 rounded text-slate-600 hover:text-red-400 hover:bg-red-500/10 transition-colors">
+                            <Trash2 size={11} />
+                          </button>
+                        </div>
                       </div>
                     </div>
                     {run.status === 'running' && (
@@ -314,6 +403,16 @@ export default function ProjectDetail() {
                       ))}
                     </div>
                   </div>
+                  {/* Run memory panel */}
+                  {memOpen && (
+                    <div className="px-4 pb-4 border-t border-white/5">
+                      <p className="text-[10px] text-slate-600 uppercase tracking-widest font-semibold mt-3 mb-2">Shared Run Memory</p>
+                      <MemoryViewer
+                        memories={runMemories[run.id] ?? []}
+                        emptyMessage="No memory files written for this run yet."
+                      />
+                    </div>
+                  )}
                 </GlassCard>
               )
             })

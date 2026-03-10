@@ -1,13 +1,15 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { Workflow, WorkflowNode, WorkflowEdge, Agent } from '../types'
+import { api } from '../api/client'
+import type { Skill } from '../types'
 
 interface Props {
   workflow: Workflow
   agents?: Agent[]
 }
 
-const NODE_W = 160
-const NODE_H = 56
+const NODE_W = 170
+const NODE_H = 68
 const START_END_R = 28
 
 function getNodeCenter(node: WorkflowNode) {
@@ -20,7 +22,6 @@ function getNodeCenter(node: WorkflowNode) {
 function getEdgePoints(src: WorkflowNode, tgt: WorkflowNode) {
   const s = getNodeCenter(src)
   const t = getNodeCenter(tgt)
-  // exit right edge of source, enter left edge of target
   let x1 = s.cx, y1 = s.cy, x2 = t.cx, y2 = t.cy
   if (src.type === 'agent') x1 = src.x + NODE_W
   else x1 = src.x + START_END_R * 2
@@ -35,15 +36,24 @@ function nodeById(nodes: WorkflowNode[], id: string) {
 }
 
 export default function WorkflowDiagram({ workflow, agents = [] }: Props) {
+  const [skills, setSkills] = useState<Skill[]>([])
+  useEffect(() => { api.getSkills().then(setSkills).catch(() => {}) }, [])
+
   const agentMap = useMemo(() => {
     const m: Record<string, Agent> = {}
     agents.forEach(a => { m[a.id] = a })
     return m
   }, [agents])
 
-  // Auto-calculate SVG viewbox
+  const skillMap = useMemo(() => {
+    const m: Record<string, Skill> = {}
+    skills.forEach(s => { m[s.id] = s })
+    return m
+  }, [skills])
+
+  // Auto-calculate SVG viewbox – extra vertical space for skill badges
   const allX = workflow.nodes.map(n => n.x + (n.type === 'agent' ? NODE_W : START_END_R * 2))
-  const allY = workflow.nodes.map(n => n.y + (n.type === 'agent' ? NODE_H : START_END_R * 2))
+  const allY = workflow.nodes.map(n => n.y + (n.type === 'agent' ? NODE_H + 24 : START_END_R * 2))
   const maxX = Math.max(...allX, 400) + 40
   const maxY = Math.max(...allY, 200) + 40
 
@@ -59,7 +69,7 @@ export default function WorkflowDiagram({ workflow, agents = [] }: Props) {
     <svg
       viewBox={`0 0 ${maxX} ${maxY}`}
       className="w-full"
-      style={{ maxHeight: 260 }}
+      style={{ maxHeight: 300 }}
     >
       <defs>
         <marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
@@ -133,6 +143,7 @@ export default function WorkflowDiagram({ workflow, agents = [] }: Props) {
         }
         // agent node
         const agent = node.agent_id ? agentMap[node.agent_id] : null
+        const nodeSkills = (node.skill_ids ?? []).map(id => skillMap[id]).filter(Boolean)
         return (
           <g key={node.id}>
             <rect
@@ -149,6 +160,32 @@ export default function WorkflowDiagram({ workflow, agents = [] }: Props) {
                 {agent.model}
               </text>
             )}
+            {/* Skill badges below the node */}
+            {nodeSkills.map((sk, i) => {
+              const badgeW = Math.min(sk.name.length * 6 + 12, 90)
+              const totalW = nodeSkills.length * (badgeW + 4) - 4
+              const startX = node.x + NODE_W / 2 - totalW / 2
+              return (
+                <g key={sk.id}>
+                  <rect
+                    x={startX + i * (badgeW + 4)} y={node.y + NODE_H + 4}
+                    width={badgeW} height={14} rx="4"
+                    fill={sk.type === 'script' ? 'rgba(124,58,237,0.25)' : 'rgba(16,185,129,0.25)'}
+                    stroke={sk.type === 'script' ? 'rgba(124,58,237,0.4)' : 'rgba(16,185,129,0.4)'}
+                    strokeWidth="0.75"
+                  />
+                  <text
+                    x={startX + i * (badgeW + 4) + badgeW / 2}
+                    y={node.y + NODE_H + 14}
+                    textAnchor="middle"
+                    fill={sk.type === 'script' ? '#a78bfa' : '#6ee7b7'}
+                    fontSize="8"
+                  >
+                    {sk.name.length > 12 ? sk.name.slice(0, 11) + '…' : sk.name}
+                  </text>
+                </g>
+              )
+            })}
           </g>
         )
       })}

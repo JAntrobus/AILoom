@@ -1,11 +1,14 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ArrowLeft, ArrowRight, Check, Bot, Cpu, Hash, Loader2 } from 'lucide-react'
+import {
+  ArrowLeft, ArrowRight, Check, Bot, Cpu, Hash, Loader2,
+  Plus, Trash2, Brain, ListOrdered,
+} from 'lucide-react'
 import { api } from '../api/client'
-import type { Platform } from '../types'
+import type { Platform, Skill } from '../types'
 import GlassCard from '../components/GlassCard'
 
-type Step = 'info' | 'platform' | 'model' | 'review'
+type Step = 'info' | 'behaviour' | 'platform' | 'model' | 'review'
 
 const providerColors: Record<string, string> = {
   openai: 'from-emerald-600 to-teal-600',
@@ -19,11 +22,24 @@ export default function NewAgent() {
   const navigate = useNavigate()
   const [step, setStep] = useState<Step>('info')
   const [platforms, setPlatforms] = useState<Platform[]>([])
+  const [skills, setSkills] = useState<Skill[]>([])
   const [models, setModels] = useState<string[]>([])
   const [saving, setSaving] = useState(false)
-  const [form, setForm] = useState({ name: '', description: '', platform_id: '', model: '' })
+  const [stepInput, setStepInput] = useState('')
+  const [form, setForm] = useState({
+    name: '',
+    description: '',
+    system_prompt: '',
+    steps: [] as string[],
+    skill_ids: [] as string[],
+    platform_id: '',
+    model: '',
+  })
 
-  useEffect(() => { api.getPlatforms().then(setPlatforms) }, [])
+  useEffect(() => {
+    Promise.all([api.getPlatforms(), api.getSkills()])
+      .then(([p, s]) => { setPlatforms(p); setSkills(s) })
+  }, [])
 
   useEffect(() => {
     if (!form.platform_id) { setModels([]); return }
@@ -33,27 +49,56 @@ export default function NewAgent() {
     })
   }, [form.platform_id])
 
-  function set(k: keyof typeof form, v: string) { setForm(f => ({ ...f, [k]: v })) }
+  function set<K extends keyof typeof form>(k: K, v: typeof form[K]) {
+    setForm(f => ({ ...f, [k]: v }))
+  }
 
-  const steps: { id: Step; label: string }[] = [
-    { id: 'info', label: 'Info' },
-    { id: 'platform', label: 'Platform' },
-    { id: 'model', label: 'Model' },
-    { id: 'review', label: 'Review' },
+  function addStep() {
+    const t = stepInput.trim()
+    if (!t) return
+    set('steps', [...form.steps, t])
+    setStepInput('')
+  }
+
+  function removeStep(i: number) {
+    set('steps', form.steps.filter((_, idx) => idx !== i))
+  }
+
+  function toggleSkill(id: string) {
+    set('skill_ids', form.skill_ids.includes(id)
+      ? form.skill_ids.filter(s => s !== id)
+      : [...form.skill_ids, id])
+  }
+
+  const wizardSteps: { id: Step; label: string }[] = [
+    { id: 'info',      label: 'Info' },
+    { id: 'behaviour', label: 'Behaviour' },
+    { id: 'platform',  label: 'Platform' },
+    { id: 'model',     label: 'Model' },
+    { id: 'review',    label: 'Review' },
   ]
-  const idx = steps.findIndex(s => s.id === step)
+  const idx = wizardSteps.findIndex(s => s.id === step)
 
   const canNext = {
-    info: form.name.trim().length > 0,
-    platform: !!form.platform_id,
-    model: !!form.model,
-    review: true,
+    info:      form.name.trim().length > 0,
+    behaviour: true,
+    platform:  !!form.platform_id,
+    model:     !!form.model,
+    review:    true,
   }[step]
 
   async function handleCreate() {
     setSaving(true)
     try {
-      await api.createAgent({ name: form.name.trim(), description: form.description.trim(), platform_id: form.platform_id, model: form.model })
+      await api.createAgent({
+        name: form.name.trim(),
+        description: form.description.trim(),
+        platform_id: form.platform_id,
+        model: form.model,
+        system_prompt: form.system_prompt.trim(),
+        steps: form.steps,
+        skill_ids: form.skill_ids,
+      })
       navigate('/agents')
     } finally { setSaving(false) }
   }
@@ -74,7 +119,7 @@ export default function NewAgent() {
 
       {/* Step bar */}
       <div className="flex items-center gap-0 mb-8">
-        {steps.map((s, i) => (
+        {wizardSteps.map((s, i) => (
           <div key={s.id} className="flex items-center flex-1 last:flex-none">
             <div className={`flex items-center justify-center w-8 h-8 rounded-full text-xs font-bold border transition-all ${
               i < idx ? 'bg-violet-600 border-violet-600 text-white' :
@@ -82,7 +127,7 @@ export default function NewAgent() {
               'border-white/10 text-slate-600'
             }`}>{i < idx ? <Check size={13} /> : i + 1}</div>
             <span className={`ml-2 text-xs font-medium ${i === idx ? 'text-white' : 'text-slate-600'}`}>{s.label}</span>
-            {i < steps.length - 1 && <div className={`flex-1 h-px mx-4 ${i < idx ? 'bg-violet-600' : 'bg-white/8'}`} />}
+            {i < wizardSteps.length - 1 && <div className={`flex-1 h-px mx-4 ${i < idx ? 'bg-violet-600' : 'bg-white/8'}`} />}
           </div>
         ))}
       </div>
@@ -99,6 +144,92 @@ export default function NewAgent() {
               <label className="label">Description</label>
               <textarea className="input min-h-[80px] resize-none" placeholder="What does this agent do?" value={form.description} onChange={e => set('description', e.target.value)} />
             </div>
+          </div>
+        )}
+
+        {/* Behaviour */}
+        {step === 'behaviour' && (
+          <div className="space-y-5">
+            <div>
+              <label className="label flex items-center gap-2">
+                <Brain size={13} className="text-violet-400" />
+                System Prompt
+              </label>
+              <p className="text-xs text-slate-500 mb-2">
+                Define the agent's persona, role, and high-level objectives.
+                The agent uses this as the foundation for all its responses.
+              </p>
+              <textarea
+                className="input resize-y font-mono text-xs leading-relaxed"
+                style={{ minHeight: '120px' }}
+                placeholder={"You are an expert research analyst. Your role is to gather information from multiple sources, evaluate credibility, and synthesise findings into clear, structured briefs...\n\nAlways cite your sources and note the confidence level of each claim."}
+                value={form.system_prompt}
+                onChange={e => set('system_prompt', e.target.value)}
+              />
+            </div>
+
+            <div>
+              <label className="label flex items-center gap-2">
+                <ListOrdered size={13} className="text-violet-400" />
+                Step-by-Step Instructions
+              </label>
+              <p className="text-xs text-slate-500 mb-3">
+                The ordered steps this agent should follow when executing a task.
+                These are stored in the agent's own memory and refined over time.
+              </p>
+              <div className="space-y-1.5 mb-3">
+                {form.steps.map((s, i) => (
+                  <div key={i} className="flex items-start gap-2 px-3 py-2.5 rounded-xl bg-white/4 border border-white/8">
+                    <span className="text-xs text-slate-600 font-mono flex-shrink-0 pt-0.5">{i + 1}.</span>
+                    <span className="text-xs text-slate-300 flex-1 leading-relaxed">{s}</span>
+                    <button onClick={() => removeStep(i)} className="p-0.5 text-slate-600 hover:text-red-400 flex-shrink-0">
+                      <Trash2 size={11} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <div className="flex gap-2">
+                <input
+                  className="input flex-1 text-xs"
+                  placeholder="Add a step…"
+                  value={stepInput}
+                  onChange={e => setStepInput(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addStep() } }}
+                />
+                <button onClick={addStep} className="btn-ghost px-3"><Plus size={13} /></button>
+              </div>
+            </div>
+
+            {skills.length > 0 && (
+              <div>
+                <label className="label">Default Skills</label>
+                <p className="text-xs text-slate-500 mb-3">Skills this agent can use in any workflow it is assigned to.</p>
+                <div className="space-y-2">
+                  {skills.map(sk => (
+                    <button
+                      key={sk.id}
+                      onClick={() => toggleSkill(sk.id)}
+                      className={`w-full flex items-center gap-3 p-3 rounded-xl border text-left transition-all ${
+                        form.skill_ids.includes(sk.id)
+                          ? 'border-violet-500/50 bg-violet-600/10'
+                          : 'border-white/8 hover:border-white/15 hover:bg-white/3'
+                      }`}
+                    >
+                      <div className={`w-7 h-7 rounded-lg flex-shrink-0 flex items-center justify-center text-[10px] font-bold ${
+                        sk.type === 'script' ? 'bg-violet-600/20 text-violet-400' : 'bg-emerald-600/20 text-emerald-400'
+                      }`}>
+                        {sk.type === 'script' ? 'Py' : 'Ctx'}
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-xs font-medium text-white">{sk.name}</p>
+                        <p className="text-[11px] text-slate-500 truncate">{sk.description}</p>
+                      </div>
+                      {form.skill_ids.includes(sk.id) && <Check size={13} className="text-violet-400 flex-shrink-0" />}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -169,11 +300,14 @@ export default function NewAgent() {
               {[
                 ['Name', form.name],
                 ['Description', form.description || '—'],
+                ['System prompt', form.system_prompt ? <span className="line-clamp-2 text-xs font-mono">{form.system_prompt}</span> : '—'],
+                ['Steps', form.steps.length > 0 ? `${form.steps.length} step${form.steps.length !== 1 ? 's' : ''}` : '—'],
+                ['Skills', form.skill_ids.length > 0 ? `${form.skill_ids.length} selected` : '—'],
                 ['Platform', selectedPlatform?.name ?? '—'],
                 ['Model', <span key="model" className="font-mono text-sm">{form.model}</span>],
               ].map(([k, v]) => (
                 <div key={String(k)} className="flex gap-4 py-2 border-b border-white/5 last:border-0">
-                  <dt className="text-xs text-slate-500 w-24 flex-shrink-0 pt-0.5">{k}</dt>
+                  <dt className="text-xs text-slate-500 w-28 flex-shrink-0 pt-0.5">{k}</dt>
                   <dd className="text-sm text-slate-300 flex-1">{v as React.ReactNode}</dd>
                 </div>
               ))}
@@ -182,11 +316,11 @@ export default function NewAgent() {
         )}
 
         <div className="flex justify-between mt-6 pt-5 border-t border-white/8">
-          <button onClick={() => setStep(steps[idx - 1]?.id as Step ?? 'info')} disabled={idx === 0} className="btn-ghost disabled:opacity-30">
+          <button onClick={() => setStep(wizardSteps[idx - 1]?.id as Step ?? 'info')} disabled={idx === 0} className="btn-ghost disabled:opacity-30">
             <ArrowLeft size={14} /> Back
           </button>
           {step !== 'review' ? (
-            <button onClick={() => setStep(steps[idx + 1].id as Step)} disabled={!canNext} className="btn-primary disabled:opacity-40">
+            <button onClick={() => setStep(wizardSteps[idx + 1].id as Step)} disabled={!canNext} className="btn-primary disabled:opacity-40">
               Continue <ArrowRight size={14} />
             </button>
           ) : (

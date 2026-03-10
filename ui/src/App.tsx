@@ -9,6 +9,7 @@ import NewAgent from './pages/NewAgent'
 import Platforms from './pages/Platforms'
 import RunDetail from './pages/RunDetail'
 import LicensePage from './pages/LicensePage'
+import Skills from './pages/Skills'
 
 export default function App() {
   return (
@@ -23,6 +24,7 @@ export default function App() {
           <Route path="projects/:projectId/runs/:runId" element={<RunDetail />} />
           <Route path="agents" element={<Agents />} />
           <Route path="agents/new" element={<NewAgent />} />
+          <Route path="skills" element={<Skills />} />
           <Route path="platforms" element={<Platforms />} />
           <Route path="license" element={<LicensePage />} />
         </Route>

@@ -62,12 +62,14 @@ func (srv *Server) routes() {
 	srv.mux.HandleFunc("POST /api/agents", srv.handleCreateAgent)
 	srv.mux.HandleFunc("GET /api/agents/{id}", srv.handleGetAgent)
 	srv.mux.HandleFunc("DELETE /api/agents/{id}", srv.handleDeleteAgent)
+	srv.mux.HandleFunc("GET /api/agents/{id}/memory", srv.handleAgentMemory)
 
 	// Workflows
 	srv.mux.HandleFunc("GET /api/workflows", srv.handleListWorkflows)
 	srv.mux.HandleFunc("POST /api/workflows", srv.handleCreateWorkflow)
 	srv.mux.HandleFunc("GET /api/workflows/{id}", srv.handleGetWorkflow)
 	srv.mux.HandleFunc("PUT /api/workflows/{id}", srv.handleUpdateWorkflow)
+	srv.mux.HandleFunc("GET /api/workflows/{id}/memory", srv.handleWorkflowMemory)
 
 	// Projects
 	srv.mux.HandleFunc("GET /api/projects", srv.handleListProjects)
@@ -80,8 +82,20 @@ func (srv *Server) routes() {
 	srv.mux.HandleFunc("GET /api/runs", srv.handleListAllRuns)
 	srv.mux.HandleFunc("GET /api/runs/{id}", srv.handleGetRun)
 	srv.mux.HandleFunc("DELETE /api/runs/{id}", srv.handleDeleteRun)
+	srv.mux.HandleFunc("GET /api/runs/{id}/memory", srv.handleRunMemory)
 	srv.mux.HandleFunc("GET /api/projects/{id}/runs", srv.handleListProjectRuns)
 	srv.mux.HandleFunc("POST /api/projects/{id}/runs", srv.handleCreateRun)
+
+	// Skills
+	srv.mux.HandleFunc("GET /api/skills", srv.handleListSkills)
+	srv.mux.HandleFunc("POST /api/skills", srv.handleCreateSkill)
+	srv.mux.HandleFunc("GET /api/skills/{id}", srv.handleGetSkill)
+	srv.mux.HandleFunc("PUT /api/skills/{id}", srv.handleUpdateSkill)
+	srv.mux.HandleFunc("DELETE /api/skills/{id}", srv.handleDeleteSkill)
+
+	// Memory (generic create / delete)
+	srv.mux.HandleFunc("POST /api/memory", srv.handleCreateMemory)
+	srv.mux.HandleFunc("DELETE /api/memory/{id}", srv.handleDeleteMemory)
 }
 
 // ── helpers ────────────────────────────────────────────────────────────────────
@@ -131,6 +145,7 @@ func (srv *Server) handleStats(w http.ResponseWriter, _ *http.Request) {
 		"total_runs":     len(runs),
 		"agents":         len(srv.store.AllAgents()),
 		"platforms":      len(srv.store.AllPlatforms()),
+		"skills":         len(srv.store.AllSkills()),
 	})
 }
 
@@ -269,10 +284,13 @@ func (srv *Server) handleGetAgent(w http.ResponseWriter, r *http.Request) {
 }
 
 type createAgentReq struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	PlatformID  string `json:"platform_id"`
-	Model       string `json:"model"`
+	Name         string   `json:"name"`
+	Description  string   `json:"description"`
+	PlatformID   string   `json:"platform_id"`
+	Model        string   `json:"model"`
+	SystemPrompt string   `json:"system_prompt"`
+	Steps        []string `json:"steps"`
+	SkillIDs     []string `json:"skill_ids"`
 }
 
 func (srv *Server) handleCreateAgent(w http.ResponseWriter, r *http.Request) {
@@ -286,14 +304,27 @@ func (srv *Server) handleCreateAgent(w http.ResponseWriter, r *http.Request) {
 	if _, ok := srv.store.GetPlatform(req.PlatformID); !ok {
 		jsonErr(w, 400, "platform not found"); return
 	}
+	steps := req.Steps
+	if steps == nil { steps = []string{} }
+	skillIDs := req.SkillIDs
+	if skillIDs == nil { skillIDs = []string{} }
 	a := &store.Agent{
 		ID: store.NewID(), Name: req.Name, Description: req.Description,
 		PlatformID: req.PlatformID, Model: req.Model,
 		Status: store.AgentIdle, CreatedAt: time.Now().UTC(),
+		SystemPrompt: req.SystemPrompt,
+		Steps:        steps,
+		SkillIDs:     skillIDs,
 	}
 	srv.store.SetAgent(a)
 	w.WriteHeader(http.StatusCreated)
 	jsonOK(w, a)
+}
+
+func (srv *Server) handleAgentMemory(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if _, ok := srv.store.GetAgent(id); !ok { jsonErr(w, 404, "agent not found"); return }
+	jsonOK(w, srv.store.MemoriesByScope(store.MemoryScopeAgent, id))
 }
 
 func (srv *Server) handleDeleteAgent(w http.ResponseWriter, r *http.Request) {
@@ -317,9 +348,10 @@ func (srv *Server) handleGetWorkflow(w http.ResponseWriter, r *http.Request) {
 }
 
 type workflowReq struct {
-	Name  string               `json:"name"`
-	Nodes []store.WorkflowNode `json:"nodes"`
-	Edges []store.WorkflowEdge `json:"edges"`
+	Name     string               `json:"name"`
+	Nodes    []store.WorkflowNode `json:"nodes"`
+	Edges    []store.WorkflowEdge `json:"edges"`
+	SkillIDs []string             `json:"skill_ids"`
 }
 
 func (srv *Server) handleCreateWorkflow(w http.ResponseWriter, r *http.Request) {
@@ -336,9 +368,12 @@ func (srv *Server) handleCreateWorkflow(w http.ResponseWriter, r *http.Request) 
 			srv.lic.Payload.Tier))
 		return
 	}
+	skillIDs := req.SkillIDs
+	if skillIDs == nil { skillIDs = []string{} }
 	wf := &store.Workflow{
 		ID: store.NewID(), Name: req.Name,
-		Nodes: req.Nodes, Edges: req.Edges, CreatedAt: time.Now().UTC(),
+		Nodes: req.Nodes, Edges: req.Edges,
+		SkillIDs: skillIDs, CreatedAt: time.Now().UTC(),
 	}
 	srv.store.SetWorkflow(wf)
 	w.WriteHeader(http.StatusCreated)
@@ -352,8 +387,15 @@ func (srv *Server) handleUpdateWorkflow(w http.ResponseWriter, r *http.Request) 
 	var req workflowReq
 	if err := decode(r, &req); err != nil { jsonErr(w, 400, err.Error()); return }
 	wf.Name = req.Name; wf.Nodes = req.Nodes; wf.Edges = req.Edges
+	if req.SkillIDs != nil { wf.SkillIDs = req.SkillIDs }
 	srv.store.SetWorkflow(wf)
 	jsonOK(w, wf)
+}
+
+func (srv *Server) handleWorkflowMemory(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if _, ok := srv.store.GetWorkflow(id); !ok { jsonErr(w, 404, "workflow not found"); return }
+	jsonOK(w, srv.store.MemoriesByScope(store.MemoryScopeWorkflow, id))
 }
 
 // ── Projects ───────────────────────────────────────────────────────────────────
@@ -374,6 +416,9 @@ type projectReq struct {
 	Description string   `json:"description"`
 	WorkflowID  string   `json:"workflow_id"`
 	Tags        []string `json:"tags"`
+	InputType   string   `json:"input_type"`
+	Prompt      string   `json:"prompt"`
+	InputConfig string   `json:"input_config"`
 }
 
 func (srv *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
@@ -388,10 +433,13 @@ func (srv *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 	if err := decode(r, &req); err != nil { jsonErr(w, 400, err.Error()); return }
 	tags := req.Tags
 	if tags == nil { tags = []string{} }
+	inputType := req.InputType
+	if inputType == "" { inputType = "text" }
 	p := &store.Project{
 		ID: store.NewID(), Name: req.Name, Description: req.Description,
 		Status: store.ProjectActive, WorkflowID: req.WorkflowID,
 		Tags: tags, CreatedAt: time.Now().UTC(),
+		InputType: inputType, Prompt: req.Prompt, InputConfig: req.InputConfig,
 	}
 	srv.store.SetProject(p)
 	w.WriteHeader(http.StatusCreated)
@@ -407,6 +455,9 @@ func (srv *Server) handleUpdateProject(w http.ResponseWriter, r *http.Request) {
 	p.Name = req.Name; p.Description = req.Description
 	p.WorkflowID = req.WorkflowID
 	if req.Tags != nil { p.Tags = req.Tags }
+	if req.InputType != "" { p.InputType = req.InputType }
+	p.Prompt = req.Prompt
+	p.InputConfig = req.InputConfig
 	srv.store.SetProject(p)
 	jsonOK(w, p)
 }
@@ -436,6 +487,12 @@ func (srv *Server) handleDeleteRun(w http.ResponseWriter, r *http.Request) {
 	if _, ok := srv.store.GetRun(id); !ok { jsonErr(w, 404, "run not found"); return }
 	srv.store.DelRun(id)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (srv *Server) handleRunMemory(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if _, ok := srv.store.GetRun(id); !ok { jsonErr(w, 404, "run not found"); return }
+	jsonOK(w, srv.store.MemoriesByScope(store.MemoryScopeRun, id))
 }
 
 func (srv *Server) handleListProjectRuns(w http.ResponseWriter, r *http.Request) {
@@ -496,4 +553,100 @@ func (srv *Server) handleCreateRun(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusCreated)
 	jsonOK(w, run)
+}
+
+// ── Skills ─────────────────────────────────────────────────────────────────────
+
+func (srv *Server) handleListSkills(w http.ResponseWriter, _ *http.Request) {
+jsonOK(w, srv.store.AllSkills())
+}
+
+func (srv *Server) handleGetSkill(w http.ResponseWriter, r *http.Request) {
+id := r.PathValue("id")
+sk, ok := srv.store.GetSkill(id)
+if !ok { jsonErr(w, 404, "skill not found"); return }
+jsonOK(w, sk)
+}
+
+type skillReq struct {
+Name        string          `json:"name"`
+Description string          `json:"description"`
+Type        store.SkillType `json:"type"`
+Language    string          `json:"language"`
+Content     string          `json:"content"`
+Tags        []string        `json:"tags"`
+}
+
+func (srv *Server) handleCreateSkill(w http.ResponseWriter, r *http.Request) {
+var req skillReq
+if err := decode(r, &req); err != nil { jsonErr(w, 400, err.Error()); return }
+if req.Type != store.SkillTypeScript && req.Type != store.SkillTypePrompt {
+jsonErr(w, 400, "type must be 'script' or 'prompt'"); return
+}
+tags := req.Tags
+if tags == nil { tags = []string{} }
+now := time.Now().UTC()
+sk := &store.Skill{
+ID: store.NewID(), Name: req.Name, Description: req.Description,
+Type: req.Type, Language: req.Language, Content: req.Content,
+Tags: tags, CreatedAt: now, UpdatedAt: now,
+}
+srv.store.SetSkill(sk)
+w.WriteHeader(http.StatusCreated)
+jsonOK(w, sk)
+}
+
+func (srv *Server) handleUpdateSkill(w http.ResponseWriter, r *http.Request) {
+id := r.PathValue("id")
+sk, ok := srv.store.GetSkill(id)
+if !ok { jsonErr(w, 404, "skill not found"); return }
+var req skillReq
+if err := decode(r, &req); err != nil { jsonErr(w, 400, err.Error()); return }
+sk.Name = req.Name; sk.Description = req.Description
+sk.Type = req.Type; sk.Language = req.Language; sk.Content = req.Content
+if req.Tags != nil { sk.Tags = req.Tags }
+sk.UpdatedAt = time.Now().UTC()
+srv.store.SetSkill(sk)
+jsonOK(w, sk)
+}
+
+func (srv *Server) handleDeleteSkill(w http.ResponseWriter, r *http.Request) {
+id := r.PathValue("id")
+if _, ok := srv.store.GetSkill(id); !ok { jsonErr(w, 404, "skill not found"); return }
+srv.store.DelSkill(id)
+w.WriteHeader(http.StatusNoContent)
+}
+
+// ── Memory ─────────────────────────────────────────────────────────────────────
+
+type memoryReq struct {
+Scope     store.MemoryScope `json:"scope"`
+ScopeID   string            `json:"scope_id"`
+Title     string            `json:"title"`
+Content   string            `json:"content"`
+WrittenBy string            `json:"written_by"`
+}
+
+func (srv *Server) handleCreateMemory(w http.ResponseWriter, r *http.Request) {
+var req memoryReq
+if err := decode(r, &req); err != nil { jsonErr(w, 400, err.Error()); return }
+if req.Scope == "" || req.ScopeID == "" || req.Title == "" {
+jsonErr(w, 400, "scope, scope_id, and title are required"); return
+}
+now := time.Now().UTC()
+m := &store.MemoryFile{
+ID: store.NewID(), Scope: req.Scope, ScopeID: req.ScopeID,
+Title: req.Title, Content: req.Content, WrittenBy: req.WrittenBy,
+CreatedAt: now, UpdatedAt: now,
+}
+srv.store.SetMemory(m)
+w.WriteHeader(http.StatusCreated)
+jsonOK(w, m)
+}
+
+func (srv *Server) handleDeleteMemory(w http.ResponseWriter, r *http.Request) {
+id := r.PathValue("id")
+if _, ok := srv.store.GetMemory(id); !ok { jsonErr(w, 404, "memory not found"); return }
+srv.store.DelMemory(id)
+w.WriteHeader(http.StatusNoContent)
 }

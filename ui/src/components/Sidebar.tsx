@@ -1,13 +1,14 @@
 import { NavLink, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, FolderKanban, Bot, Cpu, Plus,
-  Zap, ChevronRight, ShieldCheck,
+  Zap, ChevronRight, ShieldCheck, Wrench,
 } from 'lucide-react'
 
 const navItems = [
   { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
   { to: '/projects', icon: FolderKanban, label: 'Projects' },
   { to: '/agents', icon: Bot, label: 'Agents' },
+  { to: '/skills', icon: Wrench, label: 'Skills' },
   { to: '/platforms', icon: Cpu, label: 'Platforms' },
   { to: '/license', icon: ShieldCheck, label: 'License' },
 ]

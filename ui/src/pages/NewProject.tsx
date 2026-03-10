@@ -1,11 +1,22 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ArrowLeft, ArrowRight, Check, FolderKanban, GitBranch, Loader2 } from 'lucide-react'
+import {
+  ArrowLeft, ArrowRight, Check, FolderKanban, GitBranch, Loader2,
+  MessageSquareText, FileCode2, FileInput, Globe, Webhook,
+} from 'lucide-react'
 import { api } from '../api/client'
-import type { Workflow } from '../types'
+import type { Workflow, InputType } from '../types'
 import GlassCard from '../components/GlassCard'
 
-type Step = 'details' | 'workflow' | 'review'
+type Step = 'details' | 'input' | 'workflow' | 'review'
+
+const INPUT_TYPES: { id: InputType; label: string; desc: string; icon: React.ReactNode }[] = [
+  { id: 'text',    label: 'Text Prompt',  desc: 'User types or pastes the task description directly.',       icon: <MessageSquareText size={18} className="text-violet-400" /> },
+  { id: 'file',    label: 'File Upload',  desc: 'A document, code file, or CSV is uploaded as input.',       icon: <FileCode2 size={18} className="text-blue-400" /> },
+  { id: 'api',     label: 'API / GitHub', desc: 'Data arrives via an API call (PR, ticket, payload…).',      icon: <FileInput size={18} className="text-emerald-400" /> },
+  { id: 'url',     label: 'URL / Web',    desc: 'The agent fetches and processes a web URL.',                 icon: <Globe size={18} className="text-amber-400" /> },
+  { id: 'webhook', label: 'Webhook',      desc: 'An external system POSTs data to trigger a run.',           icon: <Webhook size={18} className="text-red-400" /> },
+]
 
 export default function NewProject() {
   const navigate = useNavigate()
@@ -18,11 +29,16 @@ export default function NewProject() {
     description: '',
     tags: '',
     workflow_id: '',
+    input_type: 'text' as InputType,
+    prompt: '',
+    input_config: '',
   })
 
   useEffect(() => { api.getWorkflows().then(setWorkflows) }, [])
 
-  function update(k: keyof typeof form, v: string) { setForm(f => ({ ...f, [k]: v })) }
+  function update<K extends keyof typeof form>(k: K, v: typeof form[K]) {
+    setForm(f => ({ ...f, [k]: v }))
+  }
 
   const canProceedDetails = form.name.trim().length > 0
 
@@ -34,6 +50,9 @@ export default function NewProject() {
         description: form.description.trim(),
         workflow_id: form.workflow_id || undefined,
         tags: form.tags.split(',').map(t => t.trim()).filter(Boolean),
+        input_type: form.input_type,
+        prompt: form.prompt.trim(),
+        input_config: form.input_config.trim() || undefined,
       })
       navigate(`/projects/${p.id}`)
     } finally {
@@ -41,10 +60,11 @@ export default function NewProject() {
     }
   }
 
-  const steps = [
+  const steps: { id: Step; label: string }[] = [
     { id: 'details', label: 'Details' },
+    { id: 'input',   label: 'Input' },
     { id: 'workflow', label: 'Workflow' },
-    { id: 'review', label: 'Review' },
+    { id: 'review',  label: 'Review' },
   ]
   const stepIdx = steps.findIndex(s => s.id === step)
 
@@ -103,6 +123,67 @@ export default function NewProject() {
           </div>
         )}
 
+        {/* ── Step: Input ── */}
+        {step === 'input' && (
+          <div className="space-y-5">
+            <div>
+              <label className="label mb-3">How does data enter this project?</label>
+              <div className="grid grid-cols-1 gap-2">
+                {INPUT_TYPES.map(it => (
+                  <button
+                    key={it.id}
+                    onClick={() => update('input_type', it.id)}
+                    className={`flex items-center gap-4 p-3.5 rounded-xl border text-left transition-all ${
+                      form.input_type === it.id
+                        ? 'border-violet-500/50 bg-violet-600/10'
+                        : 'border-white/8 hover:border-white/15 hover:bg-white/3'
+                    }`}
+                  >
+                    <div className={`w-10 h-10 rounded-xl flex-shrink-0 flex items-center justify-center ${
+                      form.input_type === it.id ? 'bg-violet-600/20 border border-violet-500/30' : 'bg-white/5 border border-white/8'
+                    }`}>
+                      {it.icon}
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-sm font-medium text-white">{it.label}</p>
+                      <p className="text-xs text-slate-500 mt-0.5">{it.desc}</p>
+                    </div>
+                    {form.input_type === it.id && <Check size={14} className="text-violet-400 flex-shrink-0" />}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <label className="label">Task Prompt</label>
+              <p className="text-xs text-slate-500 mb-2">
+                Describe exactly what you want the agent workflow to do with the incoming data.
+                This is the core instruction fed to the first agent.
+              </p>
+              <textarea
+                className="input resize-y font-mono text-xs leading-relaxed"
+                style={{ minHeight: '120px' }}
+                placeholder="e.g. Research and write a 1,000-word SEO blog post on the given topic. Include at least 3 sources and optimise for the primary keyword..."
+                value={form.prompt}
+                onChange={e => update('prompt', e.target.value)}
+              />
+            </div>
+
+            {(form.input_type === 'api' || form.input_type === 'webhook') && (
+              <div>
+                <label className="label">Input Configuration (JSON, optional)</label>
+                <textarea
+                  className="input resize-y font-mono text-xs leading-relaxed"
+                  style={{ minHeight: '80px' }}
+                  placeholder={'{\n  "source": "github",\n  "repo": "org/repo"\n}'}
+                  value={form.input_config}
+                  onChange={e => update('input_config', e.target.value)}
+                />
+              </div>
+            )}
+          </div>
+        )}
+
         {/* ── Step: Workflow ── */}
         {step === 'workflow' && (
           <div className="space-y-3">
@@ -131,6 +212,7 @@ export default function NewProject() {
                     <p className="text-sm font-medium text-white">{wf.name}</p>
                     <p className="text-xs text-slate-500 mt-0.5">
                       {wf.nodes.filter(n => n.type === 'agent').length} agent step{wf.nodes.filter(n => n.type === 'agent').length !== 1 ? 's' : ''}
+                      {wf.skill_ids?.length > 0 && ` · ${wf.skill_ids.length} skill${wf.skill_ids.length !== 1 ? 's' : ''}`}
                     </p>
                   </div>
                   {form.workflow_id === wf.id && (
@@ -161,6 +243,8 @@ export default function NewProject() {
                 ['Name', form.name || <span className="text-slate-600">—</span>],
                 ['Description', form.description || <span className="text-slate-600">—</span>],
                 ['Tags', form.tags || <span className="text-slate-600">None</span>],
+                ['Input type', INPUT_TYPES.find(t => t.id === form.input_type)?.label ?? form.input_type],
+                ['Prompt', form.prompt ? <span className="line-clamp-2 text-xs font-mono">{form.prompt}</span> : <span className="text-slate-600">—</span>],
                 ['Workflow', workflows.find(w => w.id === form.workflow_id)?.name ?? <span className="text-slate-600">None</span>],
               ].map(([k, v]) => (
                 <div key={String(k)} className="flex gap-4 py-2 border-b border-white/5 last:border-0">

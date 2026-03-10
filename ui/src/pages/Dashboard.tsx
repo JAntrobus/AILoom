@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { FolderKanban, Bot, Cpu, Activity, Play, Clock, ArrowRight, TrendingUp } from 'lucide-react'
+import { FolderKanban, Bot, Activity, ArrowRight, Wrench, Clock, Cpu } from 'lucide-react'
 import { api } from '../api/client'
 import type { Stats, Project, Run } from '../types'
 import StatCard from '../components/StatCard'
@@ -59,7 +59,7 @@ export default function Dashboard() {
         <StatCard label="Projects" value={stats?.projects ?? 0} icon={FolderKanban} color="violet" trend="All time" />
         <StatCard label="Active Runs" value={stats?.active_runs ?? 0} icon={Activity} color="blue" trend="Right now" />
         <StatCard label="Agents" value={stats?.agents ?? 0} icon={Bot} color="emerald" trend="Configured" />
-        <StatCard label="Platforms" value={stats?.platforms ?? 0} icon={Cpu} color="amber" trend="Connected" />
+        <StatCard label="Skills" value={stats?.skills ?? 0} icon={Wrench} color="amber" trend="Available" />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

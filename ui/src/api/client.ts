@@ -13,7 +13,8 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   return res.json()
 }
 
-// Platforms
+void BASE
+
 export const api = {
   // Platforms
   getPlatforms: () => request<import('../types').Platform[]>('/platforms'),
@@ -32,6 +33,8 @@ export const api = {
     request<import('../types').Agent>('/agents', { method: 'POST', body: JSON.stringify(body) }),
   deleteAgent: (id: string) =>
     request<void>(`/agents/${id}`, { method: 'DELETE' }),
+  getAgentMemory: (id: string) =>
+    request<import('../types').MemoryFile[]>(`/agents/${id}/memory`),
 
   // Workflows
   getWorkflows: () => request<import('../types').Workflow[]>('/workflows'),
@@ -40,6 +43,8 @@ export const api = {
     request<import('../types').Workflow>('/workflows', { method: 'POST', body: JSON.stringify(body) }),
   updateWorkflow: (id: string, body: import('../types').WorkflowCreate) =>
     request<import('../types').Workflow>(`/workflows/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+  getWorkflowMemory: (id: string) =>
+    request<import('../types').MemoryFile[]>(`/workflows/${id}/memory`),
 
   // Projects
   getProjects: () => request<import('../types').Project[]>('/projects'),
@@ -60,6 +65,24 @@ export const api = {
     request<import('../types').Run>(`/projects/${projectId}/runs`, { method: 'POST' }),
   deleteRun: (id: string) =>
     request<void>(`/runs/${id}`, { method: 'DELETE' }),
+  getRunMemory: (id: string) =>
+    request<import('../types').MemoryFile[]>(`/runs/${id}/memory`),
+
+  // Skills
+  getSkills: () => request<import('../types').Skill[]>('/skills'),
+  getSkill: (id: string) => request<import('../types').Skill>(`/skills/${id}`),
+  createSkill: (body: import('../types').SkillCreate) =>
+    request<import('../types').Skill>('/skills', { method: 'POST', body: JSON.stringify(body) }),
+  updateSkill: (id: string, body: import('../types').SkillCreate) =>
+    request<import('../types').Skill>(`/skills/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+  deleteSkill: (id: string) =>
+    request<void>(`/skills/${id}`, { method: 'DELETE' }),
+
+  // Memory
+  createMemory: (body: import('../types').MemoryCreate) =>
+    request<import('../types').MemoryFile>('/memory', { method: 'POST', body: JSON.stringify(body) }),
+  deleteMemory: (id: string) =>
+    request<void>(`/memory/${id}`, { method: 'DELETE' }),
 
   // Stats
   getStats: () => request<import('../types').Stats>('/stats'),
