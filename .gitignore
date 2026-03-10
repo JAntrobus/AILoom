@@ -39,3 +39,18 @@ htmlcov/
 # OS
 .DS_Store
 Thumbs.db
+
+# Node / frontend
+ui/node_modules/
+ui/dist/
+ui/.vite/
+
+# Go engine
+engine/ailoom-engine
+engine/ailoom-engine.exe
+engine/*.lic
+engine/cmd/licensegen/ailoom-licensegen
+engine/cmd/licensegen/ailoom-licensegen.exe
+# NEVER commit the vendor private key
+engine/vendor.key
+*.key
